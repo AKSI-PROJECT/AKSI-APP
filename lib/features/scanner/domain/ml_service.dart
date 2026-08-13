@@ -68,7 +68,6 @@ class MLService {
       }
     } catch (e) {
       debugPrint('Error in Face Detection: $e');
-      return [];
     }
     return regions;
   }

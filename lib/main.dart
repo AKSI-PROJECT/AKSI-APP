@@ -7,9 +7,17 @@ import 'package:google_fonts/google_fonts.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  await dotenv.load(fileName: ".env");
-  await SupabaseService.init();
+
+  await dotenv.load(fileName: ".env", isOptional: true);
+  if (!dotenv.isInitialized) {
+    // Fallback ke template agar build tetap jalan tanpa .env lokal.
+    await dotenv.load(fileName: ".env.example", isOptional: true);
+  }
+  try {
+    await SupabaseService.init();
+  } catch (e) {
+    debugPrint('Supabase init failed, running in offline mode: $e');
+  }
   await HistoryService().init();
 
   runApp(const MainApp());

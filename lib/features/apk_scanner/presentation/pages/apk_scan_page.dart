@@ -192,7 +192,7 @@ class _ApkScanPageState extends State<ApkScanPage> {
                   duration: const Duration(seconds: 2),
                   builder: (context, value, child) {
                     return Text(
-                      'Membedah struktur file APK... ${value.toInt()}%',
+                      'Menganalisis pola nama file... ${value.toInt()}%',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,

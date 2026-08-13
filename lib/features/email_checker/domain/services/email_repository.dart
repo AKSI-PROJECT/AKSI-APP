@@ -37,7 +37,8 @@ class ApiEmailReputation {
 }
 
 class EmailRepository {
-  final SupabaseClient _client = SupabaseService().client;
+  // Lazy agar repositori bisa dikonstruksi & diuji tanpa Supabase terinisialisasi.
+  SupabaseClient get _client => SupabaseService().client;
 
   Future<ApiEmailReputation?> checkEmailReputationAPI(
     String emailAddress,
@@ -222,11 +223,15 @@ class EmailRepository {
           .from('evidence_bucket')
           .upload(storagePath, evidenceImage);
 
+      final evidenceUrl = _client.storage
+          .from('evidence_bucket')
+          .getPublicUrl(storagePath);
+
       await _client.from('community_reports').insert({
         'reporter_id': userId,
         'email_id': emailId,
         'category_tag': categoryTag,
-        'evidence_url': storagePath,
+        'evidence_url': evidenceUrl,
         'description': description,
       });
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../domain/services/link_repository.dart';
+import '../../domain/services/url_repository.dart';
 import '../../../history/domain/models/history_item.dart';
 import '../../../history/domain/services/history_service.dart';
 import '../../../../core/utils/popup_utils.dart';
@@ -43,17 +44,23 @@ class _LinkCheckPageState extends State<LinkCheckPage> {
 
     final reputation = await _repository.checkLink(fullUrl);
 
+    final isSafe = reputation.status == LinkStatus.safe;
+    final isUnknown = reputation.status == LinkStatus.unknown;
     await HistoryService().saveHistory(
       HistoryItem(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         type: HistoryType.link,
         title: 'Pemindaian URL: $url',
-        description: reputation.status == LinkStatus.safe
+        description: isSafe
             ? 'Aman'
-            : 'Berpotensi Bahaya',
-        status: reputation.status == LinkStatus.safe
+            : isUnknown
+                ? 'Tidak Terverifikasi'
+                : 'Berpotensi Bahaya',
+        status: isSafe
             ? HistoryStatus.safe
-            : HistoryStatus.dangerous,
+            : isUnknown
+                ? HistoryStatus.info
+                : HistoryStatus.dangerous,
         timestamp: DateTime.now(),
       ),
     );
@@ -62,6 +69,20 @@ class _LinkCheckPageState extends State<LinkCheckPage> {
       _reputation = reputation;
       _isLoading = false;
     });
+  }
+
+  void _showReportDialog() {
+    final url = _urlController.text.trim();
+    if (url.isEmpty) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _ReportUrlDialog(url: url),
+    );
   }
 
   @override
@@ -111,6 +132,35 @@ class _LinkCheckPageState extends State<LinkCheckPage> {
               _buildUrlInput(),
               const SizedBox(height: 24),
               _buildActionButton(),
+              if (_reputation != null) ...[
+                const SizedBox(height: 32),
+                const Divider(),
+                const SizedBox(height: 16),
+                const Text(
+                  'Merasa tautan ini berbahaya dan belum terdeteksi?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _showReportDialog,
+                  icon: const Icon(
+                    Icons.report_problem_rounded,
+                    color: Colors.red,
+                  ),
+                  label: const Text(
+                    'Laporkan Tautan',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    side: const BorderSide(color: Colors.red),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -119,10 +169,24 @@ class _LinkCheckPageState extends State<LinkCheckPage> {
   }
 
   Widget _buildResultHeader() {
-    final isSafe = _reputation!.status == LinkStatus.safe;
-    final color = isSafe ? const Color(0xFF22C55E) : const Color(0xFFEF4444);
-    final icon = isSafe ? Icons.verified_user_rounded : Icons.gpp_bad_rounded;
-    final title = isSafe ? 'URL aman' : 'Peringatan!';
+    final status = _reputation!.status;
+    final isSafe = status == LinkStatus.safe;
+    final isUnknown = status == LinkStatus.unknown;
+    final color = isSafe
+        ? const Color(0xFF22C55E)
+        : isUnknown
+            ? const Color(0xFFF59E0B)
+            : const Color(0xFFEF4444);
+    final icon = isSafe
+        ? Icons.verified_user_rounded
+        : isUnknown
+            ? Icons.help_outline_rounded
+            : Icons.gpp_bad_rounded;
+    final title = isSafe
+        ? 'URL aman'
+        : isUnknown
+            ? 'Tidak Dapat Diverifikasi'
+            : 'Peringatan!';
 
     return Column(
       children: [
@@ -301,6 +365,123 @@ class _LinkCheckPageState extends State<LinkCheckPage> {
   void dispose() {
     _urlController.dispose();
     super.dispose();
+  }
+}
+
+class _ReportUrlDialog extends StatefulWidget {
+  final String url;
+
+  const _ReportUrlDialog({required this.url});
+
+  @override
+  State<_ReportUrlDialog> createState() => _ReportUrlDialogState();
+}
+
+class _ReportUrlDialogState extends State<_ReportUrlDialog> {
+  final _descController = TextEditingController();
+  String _selectedCategory = 'Judol';
+  bool _isSubmitting = false;
+
+  static const _categories = [
+    'Judol (Judi Online)',
+    'Pornografi',
+    'Malware / Phishing',
+    'Scam / Penipuan',
+    'Lainnya',
+  ];
+
+  Future<void> _submit() async {
+    setState(() => _isSubmitting = true);
+    final success = await UrlRepository()
+        .submitReport(widget.url, _selectedCategory);
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+
+    if (success) {
+      Navigator.pop(context);
+      PopupUtils.showNotification(
+        context,
+        'Laporan berhasil dikirim. Terima kasih!',
+      );
+    } else {
+      PopupUtils.showNotification(
+        context,
+        'Gagal mengirim laporan. Coba lagi.',
+        isError: true,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        left: 24,
+        right: 24,
+        top: 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Laporkan Tautan Berbahaya',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'URL: ${widget.url}',
+              style: const TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Kategori',
+                border: OutlineInputBorder(),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedCategory,
+                  isExpanded: true,
+                  items: _categories
+                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                      .toList(),
+                  onChanged: (v) => setState(() => _selectedCategory = v!),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _descController,
+              decoration: const InputDecoration(
+                labelText: 'Keterangan Tambahan (Opsional)',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: _isSubmitting ? null : _submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(color: Colors.white),
+                    )
+                  : const Text('KIRIM LAPORAN'),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
   }
 }
 
