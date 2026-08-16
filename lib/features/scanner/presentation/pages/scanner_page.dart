@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -39,18 +40,17 @@ class _ScannerPageState extends State<ScannerPage> {
   }
 
   Future<void> _scanDocument() async {
-    try {
-      final documentScanner = DocumentScanner(
-        options: DocumentScannerOptions(
-          documentFormats: const {DocumentFormat.jpeg},
-          mode: ScannerMode.full,
-          pageLimit: 1,
-          isGalleryImport: true,
-        ),
-      );
+    final documentScanner = DocumentScanner(
+      options: DocumentScannerOptions(
+        documentFormats: const {DocumentFormat.jpeg},
+        mode: ScannerMode.full,
+        pageLimit: 1,
+        isGalleryImport: true,
+      ),
+    );
 
+    try {
       final result = await documentScanner.scanDocument();
-      documentScanner.close();
 
       if (result.images == null || result.images!.isEmpty) return;
 
@@ -85,11 +85,22 @@ class _ScannerPageState extends State<ScannerPage> {
           );
         }
       }
+    } on PlatformException catch (e) {
+      if (e.code == 'Canceled' || e.message?.toLowerCase().contains('cancel') == true || (e.code == 'document_scanner' && e.message?.toLowerCase().contains('cancel') == true)) {
+        // Abaikan error jika user batal scan / back.
+        return;
+      }
+      if (mounted) {
+        setState(() => _isAnalyzing = false);
+        PopupUtils.showNotification(context, 'Gagal memindai: ${e.message}', isError: true);
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _isAnalyzing = false);
         PopupUtils.showNotification(context, 'Error: $e', isError: true);
       }
+    } finally {
+      documentScanner.close();
     }
   }
 

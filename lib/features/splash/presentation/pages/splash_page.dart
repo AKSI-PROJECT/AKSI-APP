@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../../../features/onboarding/presentation/pages/onboarding_page.dart';
 
 class SplashPage extends StatefulWidget {
@@ -12,13 +13,25 @@ class _SplashPageState extends State<SplashPage> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const OnboardingPage()),
-        );
-      }
-    });
+    _initApp();
+  }
+
+  Future<void> _initApp() async {
+    // Meminta izin dasar yang diperlukan
+    await [
+      Permission.camera,
+      Permission.photos,
+      Permission.storage,
+    ].request();
+
+    // Jeda sejenak untuk efek splash screen
+    await Future.delayed(const Duration(seconds: 1));
+    
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const OnboardingPage()),
+      );
+    }
   }
 
   @override

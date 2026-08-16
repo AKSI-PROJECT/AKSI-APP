@@ -60,19 +60,52 @@ class _EmailCheckPageState extends State<EmailCheckPage> {
     });
   }
 
-  void _showReportDialog() {
+  Future<bool> _hasInternet() async {
+    try {
+      final result = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(seconds: 3));
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _showReportDialog() async {
     final email = _emailController.text.trim();
     if (email.isEmpty) return;
 
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) =>
-          _ReportDialogForm(email: email, repository: _repository),
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
+
+    final hasInternet = await _hasInternet();
+    
+    if (mounted) Navigator.pop(context); // close loading
+
+    if (!hasInternet) {
+      if (mounted) {
+        PopupUtils.showNotification(
+          context,
+          'Tidak bisa melakukan laporan karena Anda sedang offline (tidak ada koneksi internet).',
+          isError: true,
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) =>
+            _ReportDialogForm(email: email, repository: _repository),
+      );
+    }
   }
 
   @override
@@ -167,14 +200,16 @@ class _EmailCheckPageState extends State<EmailCheckPage> {
     final icon = isSuspicious
         ? Icons.gpp_bad_rounded
         : Icons.verified_user_rounded;
-    final title = isSuspicious ? 'Peringatan!' : 'Email Aman';
+    final title = isSuspicious ? 'Potensi Berbahaya' : 'Email Aman';
 
     String message = isSuspicious
         ? 'Email ini memiliki reputasi buruk atau pernah dilaporkan.'
         : 'Tidak ada aktivitas mencurigakan yang terdeteksi dari email ini.';
 
     if (isSuspicious && _reputation!.details.isNotEmpty) {
-      if (_reputation!.details['blacklisted'] == true) {
+      if (_reputation!.details['reason'] != null) {
+        message = _reputation!.details['reason'];
+      } else if (_reputation!.details['blacklisted'] == true) {
         message = 'Email ini masuk dalam daftar hitam (blacklisted).';
       } else if (_reputation!.details['malicious_activity'] == true) {
         message = 'Email ini terindikasi melakukan aktivitas berbahaya.';
@@ -371,6 +406,7 @@ class _ReportDialogFormState extends State<_ReportDialogForm> {
   String _selectedCategory = 'Scam Lamaran Kerja';
   File? _imageFile;
   bool _isSubmitting = false;
+  String? _errorMessage;
 
   final categories = [
     'Scam Lamaran Kerja',
@@ -386,42 +422,40 @@ class _ReportDialogFormState extends State<_ReportDialogForm> {
     if (picked != null) {
       setState(() {
         _imageFile = File(picked.path);
+        _errorMessage = null;
       });
     }
   }
 
   Future<void> _submit() async {
+    setState(() => _errorMessage = null);
+    
     if (_imageFile == null) {
-      PopupUtils.showNotification(
-        context,
-        'Harap unggah screenshot bukti penipuan.',
-      );
+      setState(() => _errorMessage = 'Harap unggah screenshot bukti penipuan.');
       return;
     }
 
     setState(() => _isSubmitting = true);
 
-    final success = await widget.repository.submitScamReport(
+    final errorMessage = await widget.repository.submitScamReport(
       emailAddress: widget.email,
       categoryTag: _selectedCategory,
       evidenceImage: _imageFile!,
       description: _descController.text,
     );
 
+    if (!mounted) return;
+
     setState(() => _isSubmitting = false);
 
-    if (success && mounted) {
+    if (errorMessage == null) {
       Navigator.pop(context);
       PopupUtils.showNotification(
         context,
         'Laporan berhasil dikirim. Terima kasih!',
       );
-    } else if (mounted) {
-      PopupUtils.showNotification(
-        context,
-        'Gagal mengirim laporan. Coba lagi.',
-        isError: true,
-      );
+    } else {
+      setState(() => _errorMessage = 'Gagal: $errorMessage');
     }
   }
 
@@ -485,6 +519,29 @@ class _ReportDialogFormState extends State<_ReportDialogForm> {
               ),
             ),
             const SizedBox(height: 24),
+            if (_errorMessage != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _errorMessage!,
+                        style: TextStyle(color: Colors.red.shade700, fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             ElevatedButton(
               onPressed: _isSubmitting ? null : _submit,
               style: ElevatedButton.styleFrom(

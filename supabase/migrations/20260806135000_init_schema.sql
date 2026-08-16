@@ -93,8 +93,11 @@ TO public
 USING (true);
 
 -- Only authenticated users (Moderators) can insert/update/delete email reputations manually
--- For MVP, we assume user role logic is managed via claims or a separate admin table. 
--- For now, we restrict direct edits. Logic for trust score update should be via Functions.
+-- Allow authenticated and public users to insert new email reputations when reporting
+CREATE POLICY "Public users can insert email_reputations"
+ON email_reputations FOR INSERT
+TO public
+WITH CHECK (true);
 
 -- Policies for email_tags
 -- Anyone can read tags
@@ -103,35 +106,35 @@ ON email_tags FOR SELECT
 TO public
 USING (true);
 
--- Authenticated users (Anonymous included) can insert new tags
-CREATE POLICY "Auth users can insert email_tags"
+-- Authenticated and public users can insert new tags
+CREATE POLICY "Public users can insert email_tags"
 ON email_tags FOR INSERT
-TO authenticated
+TO public
 WITH CHECK (true);
 
 -- Direct update disabled for public. Handled via increment RPC above.
 
 -- Policies for community_reports
 -- Reporter can see their own reports
-CREATE POLICY "Reporters can view their own reports"
+CREATE POLICY "Public can view reports"
 ON community_reports FOR SELECT
-TO authenticated
-USING (auth.uid() = reporter_id);
+TO public
+USING (true);
 
--- Auth users can insert reports
-CREATE POLICY "Auth users can insert community_reports"
+-- Auth and public users can insert reports
+CREATE POLICY "Public users can insert community_reports"
 ON community_reports FOR INSERT
-TO authenticated
-WITH CHECK (auth.uid() = reporter_id);
+TO public
+WITH CHECK (true);
 
 -- Storage Bucket Policies
-CREATE POLICY "Auth users can upload evidences"
+CREATE POLICY "Public users can upload evidences"
 ON storage.objects FOR INSERT
-TO authenticated
-WITH CHECK (bucket_id = 'evidence_bucket' AND (storage.foldername(name))[1] = auth.uid()::text);
+TO public
+WITH CHECK (bucket_id = 'evidence_bucket');
 
--- Only bucket owner/moderator can view (We restrict public read to prevent doxing)
-CREATE POLICY "Only reporters can view their evidences"
+-- Only reporters can view their evidences
+CREATE POLICY "Public can view evidences"
 ON storage.objects FOR SELECT
-TO authenticated
-USING (bucket_id = 'evidence_bucket' AND (storage.foldername(name))[1] = auth.uid()::text);
+TO public
+USING (bucket_id = 'evidence_bucket');

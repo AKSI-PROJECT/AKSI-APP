@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../domain/services/link_repository.dart';
 import '../../domain/services/url_repository.dart';
@@ -71,18 +72,51 @@ class _LinkCheckPageState extends State<LinkCheckPage> {
     });
   }
 
-  void _showReportDialog() {
+  Future<bool> _hasInternet() async {
+    try {
+      final result = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(seconds: 3));
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _showReportDialog() async {
     final url = _urlController.text.trim();
     if (url.isEmpty) return;
 
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => _ReportUrlDialog(url: url),
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
+
+    final hasInternet = await _hasInternet();
+
+    if (mounted) Navigator.pop(context); // close loading
+
+    if (!hasInternet) {
+      if (mounted) {
+        PopupUtils.showNotification(
+          context,
+          'Tidak bisa melakukan laporan karena Anda sedang offline (tidak ada koneksi internet).',
+          isError: true,
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => _ReportUrlDialog(url: url),
+      );
+    }
   }
 
   @override
@@ -186,7 +220,7 @@ class _LinkCheckPageState extends State<LinkCheckPage> {
         ? 'URL aman'
         : isUnknown
             ? 'Tidak Dapat Diverifikasi'
-            : 'Peringatan!';
+            : 'Potensi Berbahaya';
 
     return Column(
       children: [
@@ -379,8 +413,9 @@ class _ReportUrlDialog extends StatefulWidget {
 
 class _ReportUrlDialogState extends State<_ReportUrlDialog> {
   final _descController = TextEditingController();
-  String _selectedCategory = 'Judol';
+  String _selectedCategory = 'Judol (Judi Online)';
   bool _isSubmitting = false;
+  String? _errorMessage;
 
   static const _categories = [
     'Judol (Judi Online)',
@@ -391,24 +426,26 @@ class _ReportUrlDialogState extends State<_ReportUrlDialog> {
   ];
 
   Future<void> _submit() async {
-    setState(() => _isSubmitting = true);
-    final success = await UrlRepository()
+    setState(() {
+      _errorMessage = null;
+      _isSubmitting = true;
+    });
+    
+    final errorMessage = await UrlRepository()
         .submitReport(widget.url, _selectedCategory);
+    
     if (!mounted) return;
+    
     setState(() => _isSubmitting = false);
 
-    if (success) {
+    if (errorMessage == null) {
       Navigator.pop(context);
       PopupUtils.showNotification(
         context,
         'Laporan berhasil dikirim. Terima kasih!',
       );
     } else {
-      PopupUtils.showNotification(
-        context,
-        'Gagal mengirim laporan. Coba lagi.',
-        isError: true,
-      );
+      setState(() => _errorMessage = 'Gagal: $errorMessage');
     }
   }
 
@@ -462,6 +499,29 @@ class _ReportUrlDialogState extends State<_ReportUrlDialog> {
               maxLines: 2,
             ),
             const SizedBox(height: 24),
+            if (_errorMessage != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _errorMessage!,
+                        style: TextStyle(color: Colors.red.shade700, fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             ElevatedButton(
               onPressed: _isSubmitting ? null : _submit,
               style: ElevatedButton.styleFrom(

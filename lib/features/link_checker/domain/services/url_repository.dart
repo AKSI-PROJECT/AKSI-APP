@@ -25,16 +25,19 @@ class UrlRepository {
     }
   }
 
-  Future<bool> submitReport(String url, String category) async {
+  Future<String?> submitReport(String url, String category) async {
     try {
       await _client.rpc('increment_url_report', params: {
         'target_url': url.toLowerCase(),
         'category': category,
       });
-      return true;
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('PostgrestException: ${e.message}');
+      return e.message;
     } catch (e) {
       debugPrint('UrlRepository.submitReport: $e');
-      return false;
+      return e.toString();
     }
   }
 }

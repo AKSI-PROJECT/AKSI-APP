@@ -40,10 +40,46 @@ class EmailRepository {
   // Lazy agar repositori bisa dikonstruksi & diuji tanpa Supabase terinisialisasi.
   SupabaseClient get _client => SupabaseService().client;
 
+  Future<bool> _hasInternet() async {
+    try {
+      final result = await InternetAddress.lookup('google.com');
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<ApiEmailReputation?> checkEmailReputationAPI(
     String emailAddress,
   ) async {
     final emailClean = emailAddress.toLowerCase().trim();
+
+    // 1. Cek Laporan Komunitas Dulu
+    final localReputation = await getEmailReputation(emailClean);
+    if (localReputation != null) {
+      final tags = await getEmailTags(localReputation.id);
+      if (tags.isNotEmpty) {
+        final reason = tags.first.tagName;
+        return ApiEmailReputation(
+          email: emailClean,
+          reputation: 'low',
+          suspicious: true,
+          references: localReputation.trustScore,
+          details: {
+            'malicious_activity': true,
+            'reason': 'Pernah dilaporkan komunitas sebagai "$reason". Harap berhati-hati karena laporan belum diverifikasi admin.'
+          },
+          isOffline: false,
+        );
+      }
+    }
+    
+    bool hasInternet = await _hasInternet();
+    
+    if (!hasInternet) {
+      return await _fallbackCheck(emailClean, isOffline: true);
+    }
+
     try {
       final url = Uri.parse('https://emailrep.io/$emailClean');
       final response = await http.get(
@@ -59,11 +95,11 @@ class EmailRepository {
         return ApiEmailReputation.fromJson(data);
       } else {
         debugPrint('EmailRep API Error: ${response.statusCode}');
-        return await _fallbackCheck(emailClean, isOffline: true);
+        return await _fallbackCheck(emailClean, isOffline: false);
       }
     } catch (e) {
       debugPrint('Error checking email reputation via API: $e');
-      return await _fallbackCheck(emailClean, isOffline: true);
+      return await _fallbackCheck(emailClean, isOffline: false);
     }
   }
 
@@ -180,7 +216,7 @@ class EmailRepository {
     }
   }
 
-  Future<bool> submitScamReport({
+  Future<String?> submitScamReport({
     required String emailAddress,
     required String categoryTag,
     required File evidenceImage,
@@ -212,12 +248,8 @@ class EmailRepository {
       final emailId = emailRecord['id'];
       final userId = _client.auth.currentUser?.id;
 
-      if (userId == null) {
-        throw Exception("User is not authenticated (even anonymously)");
-      }
-
       final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final storagePath = '$userId/$fileName';
+      final storagePath = userId != null ? '$userId/$fileName' : 'public/$fileName';
 
       await _client.storage
           .from('evidence_bucket')
@@ -227,13 +259,15 @@ class EmailRepository {
           .from('evidence_bucket')
           .getPublicUrl(storagePath);
 
-      await _client.from('community_reports').insert({
-        'reporter_id': userId,
+      final reportData = {
+        if (userId != null) 'reporter_id': userId,
         'email_id': emailId,
         'category_tag': categoryTag,
         'evidence_url': evidenceUrl,
         'description': description,
-      });
+      };
+
+      await _client.from('community_reports').insert(reportData);
 
       try {
         await _client.from('email_tags').insert({
@@ -245,10 +279,16 @@ class EmailRepository {
         debugPrint('Tag might already exist: $e');
       }
 
-      return true;
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('PostgrestException: ${e.message}');
+      return e.message;
+    } on StorageException catch (e) {
+      debugPrint('StorageException: ${e.message}');
+      return e.message;
     } catch (e) {
       debugPrint('Error submitting scam report: $e');
-      return false;
+      return e.toString();
     }
   }
 }

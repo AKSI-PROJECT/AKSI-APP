@@ -1,6 +1,3 @@
--- URL reputation table (community-reported dangerous URLs)
--- Mirrors email_reputations pattern.
-
 CREATE TABLE url_reputations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     url TEXT UNIQUE NOT NULL,
@@ -16,7 +13,6 @@ BEFORE UPDATE ON url_reputations
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
 
--- Upsert + increment report count atomically (RLS-friendly).
 CREATE OR REPLACE FUNCTION increment_url_report(target_url TEXT, category TEXT)
 RETURNS VOID AS $$
 BEGIN
@@ -33,14 +29,12 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 ALTER TABLE url_reputations ENABLE ROW LEVEL SECURITY;
 
--- Siapa pun dapat membaca reputasi URL.
 CREATE POLICY "Public read access for url_reputations"
 ON url_reputations FOR SELECT
 TO public
 USING (true);
 
--- Pengguna terautentikasi (termasuk anonymous) dapat menambah laporan.
-CREATE POLICY "Auth users can insert url_reputations"
+CREATE POLICY "Public users can insert url_reputations"
 ON url_reputations FOR INSERT
-TO authenticated
+TO public
 WITH CHECK (true);
